@@ -1,0 +1,502 @@
+---
+title: "GRP on a weather"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(tidyverse)
+library(rpart)
+library(haven)
+library(writexl)
+library(GGally)
+
+library(broom)
+library(AER)
+library(margins)
+library(stargazer)
+library(wooldridge)
+
+library(sandwich)
+library(lmtest)
+library(xtable)
+library(ggpubr)
+test = read_csv("C:/Users/pkath/Downloads/test.csv")
+pop = read_csv("C:/Users/pkath/Downloads/population.csv")
+
+pop[pop$name_1=="Sverdlovsk",]
+test[test$name_1=="Sverdlovsk",]
+```
+
+```{r}
+test = test %>% select(-"nl_name_1", -".geo")
+test$year=as.numeric(str_extract(test$'system:index', "[0-9][0-9][0-9][0-9]"))
+test$'system:index'=str_remove(test$'system:index', "[0-9][0-9][0-9][0-9]")
+
+test$month=as.numeric(str_extract(test$'system:index', "[0-9][0-9]"))
+test$'system:index'=str_remove(test$'system:index', "[0-9][0-9]_")
+
+pop = pop %>% select("system:index", "name_1", "sum")
+
+data = left_join(test, pop, by=c("system:index", "name_1"))
+summary(data)
+```
+
+```{r}
+data = data %>% rename(temp_w = mean_2m_air_temperature, 
+                       pop = sum, 
+                       prec_w = total_precipitation, 
+                       type = type_1,
+                       region = varname_1) 
+data = data %>% mutate(temp_wa = temp_w/pop, prec_wa = prec_w/pop)
+head(data)
+```
+
+```{r}
+count(data, name_1)
+data[data$name_1=="Sverdlovsk", ]
+
+a = data[data$name_1=="Sverdlovsk", ] %>% 
+  group_by(year, month, name_1, type, region) %>% 
+  summarize(temp_wa=mean(temp_wa), prec_wa=mean(prec_wa), temp_w=mean(temp_w), prec_w=mean(prec_w), pop=sum(pop)) %>%      mutate('system:index'="00000000000000000041")
+
+data = filter(data, name_1 != "Sverdlovsk")
+?merge
+data = full_join(data, a)
+
+data$'system:index'=str_remove(data$'system:index', "000000000000000000")
+```
+
+```{r}
+data[data$name_1=="Moscow City", ]$region="Moscow City"
+
+GRP = readxl::read_excel("C:/Users/pkath/OneDrive/Рабочий стол/Курсовая 2022/vrp.xlsx")
+GRP$`1998` = str_replace_all(GRP$`1998`, "…", "NA")
+GRP$`1999` = str_replace_all(GRP$`1999`, "…", 'NA')
+GRP$`2000` = str_replace_all(GRP$`2000`, "…", 'NA')
+GRP$`2001` = str_replace_all(GRP$`2001`, "…", 'NA')
+GRP$`2002` = str_replace_all(GRP$`2002`, "…", 'NA')
+GRP$`2003` = str_replace_all(GRP$`2003`, "…", 'NA')
+GRP$`2004` = str_replace_all(GRP$`2004`, "…", 'NA')
+GRP$`2005` = str_replace_all(GRP$`2005`, "…", 'NA')
+GRP$`2006` = str_replace_all(GRP$`2006`, "…", 'NA')
+GRP$`2007` = str_replace_all(GRP$`2007`, "…", 'NA')
+GRP$`2008` = str_replace_all(GRP$`2008`, "…", 'NA')
+GRP$`2009` = str_replace_all(GRP$`2009`, "…", 'NA')
+GRP$`2010` = str_replace_all(GRP$`2010`, "…", 'NA')
+GRP$`2011` = str_replace_all(GRP$`2011`, "…", 'NA')
+GRP$`2012` = str_replace_all(GRP$`2012`, "…", 'NA')
+GRP$`2013` = str_replace_all(GRP$`2013`, "…", 'NA')
+GRP$`2014` = str_replace_all(GRP$`2014`, "…", 'NA')
+GRP$`2015` = str_replace_all(GRP$`2015`, "…", 'NA')
+GRP$`2016` = str_replace_all(GRP$`2016`, "…", 'NA')
+GRP$`2017` = str_replace_all(GRP$`2017`, "…", 'NA')
+GRP$`2018` = str_replace_all(GRP$`2018`, "…", 'NA')
+GRP$`2019` = str_replace_all(GRP$`2019`, "…", 'NA')
+
+
+GRP = pivot_longer(GRP, cols = c('1998', '1999', '2000', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019'), values_to = "vrp", names_to = "year")
+
+GRP$year=as.numeric(GRP$year)
+GRP$vrp=as.numeric(GRP$vrp)
+GRP=select(GRP, -region_rus)
+filter(GRP, code==20)
+```
+
+
+```{r}
+wrkfrc = readxl::read_excel("C:/Users/pkath/OneDrive/Рабочий стол/Курсовая 2022/workforce.xlsx")
+unempl_rate = readxl::read_excel("C:/Users/pkath/OneDrive/Рабочий стол/Курсовая 2022/unempl_rate.xls")
+
+wrkfrc$`2000`=as.numeric(wrkfrc$`2000`)
+wrkfrc$`2001`=as.numeric(wrkfrc$`2001`)
+wrkfrc$`2002`=as.numeric(wrkfrc$`2002`)
+wrkfrc$`2003`=as.numeric(wrkfrc$`2003`)
+wrkfrc$`2004`=as.numeric(wrkfrc$`2004`)
+wrkfrc$`2005`=as.numeric(wrkfrc$`2005`)
+
+wrkfrc = pivot_longer(wrkfrc, cols = c('2000', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019'), values_to = "wrkfrc", names_to = "year")
+wrkfrc$year=as.numeric(wrkfrc$year)
+wrkfrc = select(wrkfrc, -region_rus_rosstat)
+
+unempl_rate$`2000`=as.numeric(unempl_rate$`2000`)
+unempl_rate$`2001`=as.numeric(unempl_rate$`2001`)
+unempl_rate$`2002`=as.numeric(unempl_rate$`2002`)
+unempl_rate$`2003`=as.numeric(unempl_rate$`2003`)
+unempl_rate$`2004`=as.numeric(unempl_rate$`2004`)
+unempl_rate$`2005`=as.numeric(unempl_rate$`2005`)
+
+unempl_rate = pivot_longer(unempl_rate, cols = c('2000', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019'), values_to = "unempl_rate", names_to = "year")
+unempl_rate$year=as.numeric(unempl_rate$year)
+```
+
+
+```{r}
+regions = readxl::read_excel("C:/Users/pkath/OneDrive/Рабочий стол/Курсовая 2022/regions.xlsx")
+data$region = str_to_lower(data$region)
+regions$region = str_to_lower(regions$region)
+
+data=right_join(select(regions, "region_rus", "region", "code"), data,  by=c("region"))
+
+weather_wa=select(data, -"temp_w", -"prec_w")
+weather_wa$type = str_replace_all(weather_wa$type, "Gorsovet", "Gorod")
+```
+
+```{r}
+weather_wa = pivot_wider(weather_wa, names_from = month, values_from = c("temp_wa", "prec_wa"))
+weather_wa$type = str_replace_all(weather_wa$type, "Gorsovet", "Gorod")
+grp_weather = left_join(weather_wa, GRP, by=c("code", "year"))
+grp_weather = left_join(grp_weather, wrkfrc, by=c("code", "year"))
+grp_weather = left_join(grp_weather, unempl_rate, by=c("code", "year"))
+grp_weather = select(grp_weather, -pop)
+```
+
+```{r}
+pop = readxl::read_excel("C:/Users/pkath/OneDrive/Рабочий стол/Курсовая 2022/population.xlsx")
+ind = readxl::read_excel("C:/Users/pkath/OneDrive/Рабочий стол/Курсовая 2022/industry_shares.xlsx")
+
+grp_weather = left_join(grp_weather, select(ind, -region), by=c("code", "year"))
+
+
+pop = pop %>%  pivot_longer(cols = c('1998', '1999', '2000', '2001', '2002', '2003', '2004', '2005', '2006', '2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019'), values_to = "pop", names_to = "year")
+pop$year=as.numeric(pop$year)
+unempl_rate$year=as.numeric(unempl_rate$year)
+
+grp_weather = left_join(grp_weather, pop, by=c("code", "year"))
+
+filter(grp_weather, is.na(grp_weather$vrp)==TRUE)
+```
+```{r}
+grp_weather = grp_weather %>% select(-region, -`system:index`, -name_1)
+```
+
+
+
+
+
+```{r}
+#write.csv(data, "weather.csv")
+library(writexl)
+write_xlsx(grp_weather, "grp_weather.xlsx")
+```
+
+
+### Analysis
+```{r}
+library(haven)
+library(writexl)
+library(ggplot2)
+library(GGally)
+library(forcats)
+library(ggtext)
+library(stargazer)
+library(patchwork)
+library(gridExtra)
+library(grid)
+```
+
+
+```{r, message = FALSE, warning = FALSE}
+statafile <- read_dta("C:/Users/pkath/OneDrive/Рабочий стол/Курсовая 2022/foranalysis.dta")
+```
+
+```{r}
+as.data.frame.matrix(summary(weather_wa))
+```
+
+
+
+```{r, message = FALSE, warning = FALSE}
+#cordata0 = statafile %>% dplyr::select(-region_rus, -region, -code, -'system:index', -name_1, -type, -year, -pop, -region_rus_rosstat)
+cordata = statafile %>% mutate(lnvrp=log(vrp)) 
+
+ggpairs(select(cordata, lnvrp, temp_wa_1, temp_wa_2, temp_wa_3, prec_wa_1, prec_wa_2, prec_wa_3))
+
+ggpairs(select(cordata, lnvrp, temp_wa_4, temp_wa_5, temp_wa_6, prec_wa_4, prec_wa_5, prec_wa_6))
+ggpairs(select(cordata, lnvrp, temp_wa_7, temp_wa_8, temp_wa_9, prec_wa_7, prec_wa_8, prec_wa_9))
+ggpairs(select(cordata, lnvrp, temp_wa_10, temp_wa_11, temp_wa_12, prec_wa_10, prec_wa_11, prec_wa_12))
+
+
+```
+
+
+```{r}
+ind2 = ind %>% dplyr::mutate(sxoz=A+G+HJ+I, kommun=DE+SR, stroi=F+L, depsectr=sxoz+B+kommun+stroi) %>% filter(year==2019) %>% arrange(depsectr)
+
+top_n(ind2, 10)
+top_n(ind2, -10)
+```
+
+```{r}
+summary(ind2)
+
+number <- function(x, na.rm = TRUE){return(sum(!is.na(x)))}
+num_summary <- ind2  %>% select("A", "B", "C", "DE", "F", "G","I", "HJ", "K", "L", "ON", "PM", "Q", "SR") %>% 
+  summarise(across(everything(), 
+                   list(n = number, mean = mean, median = median, sd = sd, min = min, max = max), 
+                   na.rm = TRUE)) %>% 
+  pivot_longer(everything(), names_to = "name", values_to = "value") %>% 
+  separate(name, c("variable", "statistic"), sep = "_") %>%
+  pivot_wider(names_from = statistic, values_from = value) %>%
+  arrange(variable) %>% 
+  select(variable, n, mean, median, sd, min, max)
+```
+
+```{r}
+boxplot(select(ind2, "A", "B", "C", "DE", "F", "G","I", "HJ", "K", "L", "ON", "PM", "Q", "SR"),
+         main="Распределение долей секторов в ВРП субъектов РФ",
+         xlab="Сектора",
+         ylab="Доля в ВРП (%)")
+```
+
+
+
+```{r}
+ggplot(data=num_summary)+
+  geom_bar(aes(y=max, x=fct_reorder(as.factor(variable), abs(mean))), fill="#DC143C", alpha = 1, stat = "identity")+
+    ggtitle('Среднее') +
+  scale_fill_discrete(name = c("Температура", "Осадки")) +
+  #geom_hline(aes(yintercept = median(mean)), linetype="dashed", color="#000000", size=1) +
+  xlab('Отрасли') +
+  ylab('Доли в ВРП (%)')+
+  
+  geom_bar(aes(y=mean, x=as.numeric(fct_reorder(as.factor(variable), abs(mean)))), fill="#EEB422", alpha = 1, stat = "identity") +
+  geom_bar(aes(y=median, x=as.numeric(fct_reorder(as.factor(variable), abs(mean)))), fill="#238E68", alpha = 0.7, stat = "identity") +
+   geom_bar(aes(y=min, x=as.numeric(fct_reorder(as.factor(variable), abs(mean)))), fill="#4169E1", alpha = 1, stat = "identity") +
+   labs(
+    title = "<span style='font-size:13pt'>**Доли секторов в Валовом Региональном Продукте субъектов РФ**</span><br>
+    <span style='color:#DC143C;'>**максимальное**</span>,
+    <span style='color:#EEB422;'>**среднее**</span> и
+    <span style='color:#4169E1;'>**минимальное**</span> значения
+    </span>")+
+  theme(plot.title = element_markdown(lineheight = 1.1),
+    legend.text = element_markdown(size = 11))
+
+```
+
+```{r}
+change = statafile %>% filter(year==2019) %>% select(region_rus, code, chng, chng_temp, chng_prec) %>% mutate(abs_chng=abs(chng)) %>% arrange(-abs_chng)
+
+summary(change)
+
+head(select(arrange(change, -abs_chng), region_rus, chng), n=10)
+head(select(arrange(change, abs_chng), region_rus, chng), n=10)
+
+#sort(abs(change$chng))
+arrange(select(change, region_rus, abs_chng, chng), abs_chng)
+
+#%>% xtable(caption = "Наибольшая поцентное изменение ВРП регионов от погоды", label = "desc_stats")
+```
+
+```{r}
+ggplot(data=arrange(change, chng))+
+  geom_bar(aes(y=chng, x=as.numeric(fct_reorder(as.factor(code), chng))), fill="#DC143C", stat = "identity")+
+  geom_bar(aes(y=abs(chng_prec), x=as.numeric(fct_reorder(as.factor(code), chng))), fill="#4169E1", alpha = 1, stat = "identity") +
+    #ggtitle('Абсолютное процентное изменение ВРП регионов от изменения погоды') +
+  labs(
+    title = "<span style='font-size:13pt'>**Абсолютное процентное изменение ВРП регионов от изменения погоды**</span><br>
+    <span style='color:#DC143C;'>**температура**</span> и
+    <span style='color:#4169E1;'>**осадки**</span>
+    </span>")+
+  theme(plot.title = element_markdown(lineheight = 1.1),
+    legend.text = element_markdown(size = 11))+
+  #scale_fill_discrete(name = "Регион") +
+  geom_hline(aes(yintercept = mean(change$chng)), linetype="dashed", color="#000000", size=1) +
+  xlab('Регионы') +
+  ylab('Процентное изменение ВРП')
+```
+
+```{r}
+ggplot(data=change)+
+  geom_bar(aes(y=chng_temp, x=as.numeric(fct_reorder(as.factor(code), abs(chng)))), fill="#DC143C", alpha = 0.7, stat = "identity")+
+    ggtitle('Повышение температуры') +
+  scale_fill_discrete(name = c("Температура", "Осадки")) +
+  geom_hline(aes(yintercept = mean(chng_temp)), linetype="dashed", color="#000000", size=1) +
+  xlab('Регионы') +
+  ylab('Процентное изменение ВРП')+
+  
+  geom_bar(aes(y=chng_prec, x=as.numeric(fct_reorder(as.factor(code), abs(chng)))), fill="#4169E1", alpha = 0.7, stat = "identity") +
+  labs(
+    title = " **<span style='font-size:15pt'>Эффект от увеличения
+    <span style='color:#DC143C;'>температуры</span> и
+    <span style='color:#4169E1;'>осадков</span>
+    </span>**")+
+  theme(plot.title = element_markdown())
+```
+
+```{r}
+gg_reg_both=ggplot(data = change)+
+  geom_histogram(aes(x = chng))+
+    ggtitle('Погода в целом') +
+  #scale_fill_discrete(name = region_rus) +
+  xlab('Процентное изменение ВРП') +
+  ylab('Количество регионов')
+```
+
+Какая часть от общего эффекта из-за температуры?
+```{r}
+change = change %>% arrange(abs(chng_temp))
+summary(change)
+
+top_n(change, 10)
+head(arrange(change, -chng_temp))
+
+gg_reg_temp = ggplot(data = change)+
+  geom_histogram(aes(x = chng_temp))+
+    ggtitle('Температура') +
+  #scale_fill_discrete(name = region_rus) +
+  xlab('Процентное изменение ВРП') +
+  ylab('Количество регионов')
+```
+
+```{r}
+change = change %>% arrange(-chng_prec)
+summary(change)
+
+top_n(change, 10)
+head(arrange(change, chng_prec))
+
+gg_reg_prec = ggplot(data = change)+
+  geom_histogram(aes(x = chng_prec))+
+    ggtitle('Осадки') +
+  #scale_fill_discrete(name = region_rus) +
+  xlab('Процентное изменение ВРП') +
+  ylab('Количество регионов')
+```
+```{r}
+gg_reg_both|gg_reg_temp/gg_reg_prec
+```
+
+```{r}
+sector_chng = statafile %>% filter(year==2019) %>% select(eff_temp_lnA_pc, eff_prec_lnA_pc, eff_temp_lnB_pc, eff_prec_lnB_pc, eff_temp_lnC_pc, eff_prec_lnC_pc, eff_temp_lnDE_pc, eff_prec_lnDE_pc, eff_temp_lnF_pc, eff_prec_lnF_pc, eff_temp_lnG_pc, eff_prec_lnG_pc, eff_temp_lnI_pc, eff_prec_lnI_pc, eff_temp_lnHJ_pc, eff_prec_lnHJ_pc, eff_temp_lnK_pc, eff_prec_lnK_pc, eff_temp_lnL_pc, eff_prec_lnL_pc, eff_temp_lnON_pc, eff_prec_lnON_pc, eff_temp_lnPM_pc, eff_prec_lnPM_pc, eff_temp_lnQ_pc, eff_prec_lnQ_pc, eff_temp_lnSR_pc, eff_prec_lnSR_pc)
+
+sector_chng=sector_chng[1,]
+
+sector_chng = sector_chng %>% pivot_longer(cols =  starts_with("eff_"), values_to = "eff", names_to = c("type", "sector"), names_pattern = "eff_(.*)_ln(.*)_pc") 
+
+sector_chng = sector_chng %>% pivot_wider(names_from = type, values_from = eff)
+sector_decs = readxl::read_excel("C:/Users/pkath/OneDrive/Рабочий стол/Курсовая 2022/industry_desc.xlsx")
+sector_chng = mutate(sector_chng, both=abs(prec)+abs(temp))
+sector_chng = left_join(sector_chng, sector_decs, by="sector")
+
+```
+
+
+```{r}
+sector_chng = sector_chng %>% arrange(-prec)
+summary(sector_chng)
+```
+
+
+```{r}
+sector_chng = sector_chng %>% mutate(sec_desc = paste(sector_chng$sector, sector_chng$description, sep=" - ")) %>% arrange(both)
+sector_chng$both = round(sector_chng$both , 5)
+sector_chng$temp = round(sector_chng$temp , 5)
+sector_chng$prec = round(sector_chng$prec , 5)
+
+sector_chng
+```
+
+```{r}
+p1 = ggplot(data=sector_chng)+
+  geom_bar(aes(y=both, x=fct_reorder(as.factor(sector), -both), fill = sec_desc), stat = "identity")+
+    ggtitle('Процентное изменение ВРП секторов от погоды') +
+  scale_fill_discrete(name = "Сектор") +
+  xlab('Сектор') +
+  ylab('Процентное изменение ВРП')
+
+p2 = ggplot(data=sector_chng)+
+  geom_bar(aes(y=prec, x=fct_reorder(as.factor(sector), -prec), fill = sec_desc), stat = "identity")+
+    ggtitle('Увеличение осадков') +
+  scale_fill_discrete(name = "Сектор") +
+  xlab('Сектор') +
+  ylab('Процентное изменение ВРП')
+
+p3 = ggplot(data=sector_chng)+
+  geom_bar(aes(y=temp, x=fct_reorder(as.factor(sector), -temp), fill = sec_desc), stat = "identity")+
+    ggtitle('Повышение температуры') +
+  scale_fill_discrete(name = "Сектор") +
+  xlab('Сектор') +
+  ylab('Процентное изменение ВРП')
+
+p1
+
+p2 / p3 + plot_layout(ncol = 1, guides = "collect")
+```
+
+### Month analysis
+```{r}
+eff_month = statafile %>% select(eff_temp_1, eff_prec_1, eff_temp_2, eff_prec_2, eff_temp_3, eff_prec_3, eff_temp_4, eff_prec_4, eff_temp_5, eff_prec_5, eff_temp_6, eff_prec_6, eff_temp_7, eff_prec_7,, eff_temp_8, eff_prec_8, eff_temp_9, eff_prec_9, eff_temp_10, eff_prec_10, eff_temp_11, eff_prec_11, eff_temp_12, eff_prec_12)
+
+eff_month=eff_month[1,]
+
+eff_month = eff_month %>% pivot_longer(cols =  starts_with("eff_"), values_to = "eff", names_to = c("type", "month_n"), names_pattern = "eff_(.*)_(.*)") 
+
+eff_month = eff_month %>% pivot_wider(names_from = type, values_from = eff) %>% mutate(both=abs(prec)+abs(temp)) 
+eff_month$month_n=as.numeric(eff_month$month_n)
+eff_month = eff_month %>% arrange(desc(month_n))
+
+as.data.frame.matrix(summary(eff_month))
+
+eff_month%>% 
+  stargazer(type = 'latex', min.max = TRUE, mean.sd = TRUE, 
+            nobs = TRUE, median = FALSE, iqr = FALSE,
+            digits = 1, align = TRUE,
+            title = "Описательная статистика", 
+            covariate.labels = c("month_n", "temp","prec","both"))
+arrange(eff_month, month_n)
+```
+
+
+```{r}
+ggplot(data=eff_month)+
+  geom_bar(aes(y=both, x=as.factor(month_n), fill = as.factor(month_n)), stat = "identity")+
+    ggtitle('Абсолютный эффект месяцев от изменения погоды') +
+  scale_fill_discrete(name = "Месяц",labels=c("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")) +
+  xlab('Месяц') +
+  ylab('Процентное изменение ВРП')
+
+```
+
+
+```{r}
+g2 = ggplot(data=eff_month)+
+  geom_bar(aes(y=temp, x=as.factor(month_n), fill = as.factor(month_n)), stat = "identity")+
+    ggtitle('Эффект месяцев от повышения температуры') +
+  scale_fill_discrete(name = "Месяц",labels=c("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")) +
+  xlab('Месяц') +
+  ylab('Процентное изменение ВРП')
+
+g3 = ggplot(data=eff_month)+
+  geom_bar(aes(y=prec, x=as.factor(month_n), fill = as.factor(month_n)), stat = "identity")+
+    ggtitle('Эффект месяцев от увеличени осадков') +
+  scale_fill_discrete(name = "Месяц",labels=c("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")) +
+  xlab('Месяц') +
+  ylab('Процентное изменение ВРП')
+
+g2 / g3 + plot_layout(ncol = 1, guides = "collect")
+```
+
+```{r}
+ind2 = left_join(ind2, change, by=c("code"))
+ind2=arrange(ind2, -chng)
+
+
+write_xlsx(ind2, "indreg.xlsx")
+```
+
+```{r}
+cordata2 = ind %>% dplyr::select(A, B, C, DE, F, G, I, HJ, K, L, ON, PM, Q, SR)
+ggpairs(cordata2)
+```
+
+
+
+
+
+
+
+
+
+
+
